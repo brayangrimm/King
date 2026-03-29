@@ -1,15 +1,16 @@
 const moment = require("moment-timezone");
+const fonts = require('../../func/font.js'); // Importation du module de polices
 
 module.exports = {
   config: {
     name: "accept",
     aliases: ['acp'],
     version: "1.0",
-    author: "Loid Butter",
-    countDown: 8,
-    role: 2,
-    shortDescription: "accept users",
-    longDescription: "accept users",
+    author: "Christus",
+    countDown: 15,
+    role: 0,
+    shortDescription: "Accept or delete friend requests",
+    longDescription: "View and manage incoming friend requests with stylish formatting",
     category: "Utility",
   },
 
@@ -18,7 +19,7 @@ module.exports = {
     if (author !== event.senderID) return;
     const args = event.body.replace(/ +/g, " ").toLowerCase().split(" ");
 
-    clearTimeout(Reply.unsendTimeout); // Clear the timeout if the user responds within the countdown duration
+    clearTimeout(Reply.unsendTimeout);
 
     const form = {
       av: api.getCurrentUserID(),
@@ -46,11 +47,10 @@ module.exports = {
       form.doc_id = "4108254489275063";
     }
     else {
-      return api.sendMessage("Please select <add: del > <target number: or \"all\">", event.threadID, event.messageID);
+      return api.sendMessage(`⚠️ ${fonts.bold("Invalid Syntax")}\n${fonts.sansSerif("Please use:")} ${fonts.monospace("add/del <number/all>")}`, event.threadID, event.messageID);
     }
 
     let targetIDs = args.slice(1);
-
     if (args[1] === "all") {
       targetIDs = [];
       const lengthList = listRequest.length;
@@ -63,7 +63,7 @@ module.exports = {
     for (const stt of targetIDs) {
       const u = listRequest[parseInt(stt) - 1];
       if (!u) {
-        failed.push(`Can't find stt ${stt} in the list`);
+        failed.push(`${fonts.italic("STT " + stt + " not found")}`);
         continue;
       }
       form.variables.input.friend_requester_id = u.node.id;
@@ -79,24 +79,26 @@ module.exports = {
         const friendRequest = await promiseFriends[i];
         if (JSON.parse(friendRequest).errors) {
           failed.push(newTargetIDs[i].node.name);
-        }
-        else {
+        } else {
           success.push(newTargetIDs[i].node.name);
         }
-      }
-      catch (e) {
+      } catch (e) {
         failed.push(newTargetIDs[i].node.name);
       }
     }
 
+    let resultMsg = `✨ ${fonts.bold("REQUEST PROCESSED")}\n${"━".repeat(15)}\n`;
     if (success.length > 0) {
-      api.sendMessage(`Â» The ${args[0] === 'add' ? 'friend request' : 'friend request deletion'} processed for ${success.length} people:\n\n${success.join("\n")}${failed.length > 0 ? `\nÂ» The following ${failed.length} people encountered errors: ${failed.join("\n")}` : ""}`, event.threadID, event.messageID);
-    } else {
-      api.unsendMessage(messageID); // Unsend the message if the response is incorrect
-      return api.sendMessage("Invalid response. Please provide a valid response.", event.threadID);
+      resultMsg += `✅ ${fonts.sansSerif("Successfully " + (args[0] === 'add' ? 'accepted' : 'deleted') + ":")}\n`;
+      resultMsg += success.map(name => `┣ ${fonts.fancy(name)}`).join("\n") + "\n\n";
+    }
+    if (failed.length > 0) {
+      resultMsg += `❌ ${fonts.sansSerif("Failed/Errors:")}\n`;
+      resultMsg += failed.map(name => `┗ ${fonts.italic(name)}`).join("\n");
     }
 
-    api.unsendMessage(messageID); // Unsend the message after it processed
+    api.sendMessage(resultMsg, event.threadID, event.messageID);
+    api.unsendMessage(messageID);
   },
 
   onStart: async function ({ event, api, commandName }) {
@@ -107,26 +109,42 @@ module.exports = {
       doc_id: "4499164963466303",
       variables: JSON.stringify({ input: { scale: 3 } })
     };
-    const listRequest = JSON.parse(await api.httpPost("https://www.facebook.com/api/graphql/", form)).data.viewer.friending_possibilities.edges;
-    let msg = "";
-    let i = 0;
-    for (const user of listRequest) {
-      i++;
-      msg += (`\n${i}. Name: ${user.node.name}`
-        + `\nID: ${user.node.id}`
-        + `\nUrl: ${user.node.url.replace("www.facebook", "fb")}`
-        + `\nTime: ${moment(user.time * 1009).tz("Asia/Manila").format("DD/MM/YYYY HH:mm:ss")}\n`);
+
+    try {
+      const response = await api.httpPost("https://www.facebook.com/api/graphql/", form);
+      const listRequest = JSON.parse(response).data.viewer.friending_possibilities.edges;
+      
+      if (listRequest.length === 0) {
+        return api.sendMessage(`📭 ${fonts.sansSerif("You have no pending friend requests.")}`, event.threadID);
+      }
+
+      let msg = `📥 ${fonts.bold("FRIEND REQUEST LIST")}\n${"━".repeat(15)}\n`;
+      let i = 0;
+      for (const user of listRequest) {
+        i++;
+        const timeStr = moment(user.time * 1000).tz("Asia/Manila").format("DD/MM/YYYY HH:mm");
+        msg += `${fonts.bold(i + ".")} ${fonts.fancy(user.node.name)}\n`
+          + `🆔 ${fonts.monospace(user.node.id)}\n`
+          + `📅 ${fonts.sansSerif("Time:")} ${fonts.monospace(timeStr)}\n`
+          + `${"━".repeat(10)}\n`;
+      }
+
+      msg += `\n💡 ${fonts.italic("Reply: <add/del> <number/all>")}`;
+
+      api.sendMessage(msg, event.threadID, (e, info) => {
+        global.GoatBot.onReply.set(info.messageID, {
+          commandName,
+          messageID: info.messageID,
+          listRequest,
+          author: event.senderID,
+          unsendTimeout: setTimeout(() => {
+            api.unsendMessage(info.messageID);
+          }, this.config.countDown * 1000)
+        });
+      }, event.messageID);
+
+    } catch (err) {
+      api.sendMessage("❌ Error fetching requests.", event.threadID);
     }
-    api.sendMessage(`${msg}\nReply to this message with content: <add: del> <comparison: or "all"> to take action`, event.threadID, (e, info) => {
-      global.GoatBot.onReply.set(info.messageID, {
-        commandName,
-        messageID: info.messageID,
-        listRequest,
-        author: event.senderID,
-        unsendTimeout: setTimeout(() => {
-          api.unsendMessage(info.messageID); // Unsend the message after the countdown duration
-        }, this.config.countDown * 1000) // Convert countdown duration to milliseconds
-      });
-    }, event.messageID);
   }
 };
