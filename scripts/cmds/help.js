@@ -145,7 +145,7 @@ ${aiReply}`,
             .map(c => `• ${toCmdFont(c)}`)
             .join("  ");
 
-          body += `🍓 ${cat}\n${list || "No commands"}\n\n`;
+          body += `🍂 ${cat}\n${list || "No commands"}\n\n`;
         }
 
         body += `📊 Total Commands: ${commands.size}\n`;
